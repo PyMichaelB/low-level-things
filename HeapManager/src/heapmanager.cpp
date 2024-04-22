@@ -2,8 +2,9 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <unistd.h>
 
-Heap::Heap() { mapNPages(1); }
+Heap::Heap() : m_pageSize(getpagesize()) { mapNPages(1); }
 
 void Heap::coalesceBlocks(Block *first, Block *second) {
   // ADJUST SIZE
@@ -24,25 +25,25 @@ bool Heap::areBlocksCoalesceAble(Block *first, Block *second) {
 }
 
 void Heap::coalesceHeap() {
-  Block *b_p = blocks;
+  Block *b_p = m_blocks;
   while (b_p != nullptr && b_p->next != nullptr) {
     if (areBlocksCoalesceAble(b_p, b_p->next)) {
       coalesceBlocks(b_p, b_p->next);
     } else {
-        b_p = b_p->next;
+      b_p = b_p->next;
     }
   }
 }
 
 void Heap::unmapEmptyPages() {
   Block *b_prev = nullptr;
-  Block *b_p = blocks;
+  Block *b_p = m_blocks;
 
   while (b_p != nullptr) {
     Block *b_next = b_p->next;
 
     if (!b_p->inuse && (b_p->memStart == b_p->contigStart->start) &&
-        b_p->memSize % 4096 == 0) {
+        b_p->memSize % m_pageSize == 0) {
       // b_p represents some number of pages worth of memory, is not in use,
       // and aligned with the start of a contiguous range of mapped memory
       munmap(b_p->memStart, b_p->memSize);
@@ -50,10 +51,10 @@ void Heap::unmapEmptyPages() {
       if (b_prev != nullptr) {
         b_prev->next = b_next;
       } else {
-        blocks = b_next;
+        m_blocks = b_next;
       }
 
-      b_p->contigStart->pages -= b_p->memSize / 4096;
+      b_p->contigStart->pages -= b_p->memSize / m_pageSize;
       b_p->contigStart->start = b_p->contigStart->start + b_p->memSize;
 
       if (b_p->contigStart->pages == 0) {
@@ -68,7 +69,7 @@ void Heap::unmapEmptyPages() {
 }
 
 Block *Heap::getLargeEnoughBlock(std::size_t sizeRequired) {
-  Block *b_p = blocks;
+  Block *b_p = m_blocks;
   while (b_p != nullptr) {
     if (b_p->memSize >= sizeRequired && !b_p->inuse) {
       break;
@@ -80,7 +81,7 @@ Block *Heap::getLargeEnoughBlock(std::size_t sizeRequired) {
   return b_p;
 }
 void *Heap::assignBlock(std::size_t size) {
-  if (blocks == nullptr) {
+  if (m_blocks == nullptr) {
     return nullptr;
   }
 
@@ -88,8 +89,8 @@ void *Heap::assignBlock(std::size_t size) {
   Block *suitableBlock = getLargeEnoughBlock(size);
 
   if (suitableBlock == nullptr) {
-    // Reached end of blocks - try to get more pages page
-    mapNPages(std::ceil((double)size / 4096));
+    // Reached end of m_blocks - try to get more pages page
+    mapNPages(std::ceil((double)size / m_pageSize));
     coalesceHeap();
     suitableBlock = getLargeEnoughBlock(size);
   }
@@ -116,7 +117,7 @@ void *Heap::assignBlock(std::size_t size) {
 
 void Heap::unassignBlock(void *p) {
   Block *b_prev = nullptr;
-  Block *b_p = blocks;
+  Block *b_p = m_blocks;
 
   while (b_p != nullptr) {
     if (b_p->memStart == p) {
@@ -136,7 +137,7 @@ void Heap::print() {
   std::cout << "HEAP START" << std::endl;
 
   int blockCount = 0;
-  Block *b_p = blocks;
+  Block *b_p = m_blocks;
 
   while (b_p != nullptr) {
     std::cout << "BLOCK " << blockCount << " :"
@@ -153,7 +154,7 @@ void Heap::print() {
 }
 
 Block *Heap::getEndOfBlocks() {
-  Block *b_p = blocks;
+  Block *b_p = m_blocks;
   while (b_p != nullptr && b_p->next != nullptr) {
     b_p = b_p->next;
   }
@@ -161,7 +162,7 @@ Block *Heap::getEndOfBlocks() {
 }
 
 void Heap::mapNPages(std::size_t pageCount) {
-  void *start = mmap(NULL, 4096 * pageCount, PROT_READ | PROT_WRITE,
+  void *start = mmap(NULL, m_pageSize * pageCount, PROT_READ | PROT_WRITE,
                      MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
   ContiguousRange *c_new =
@@ -171,14 +172,14 @@ void Heap::mapNPages(std::size_t pageCount) {
 
   Block *b_new = static_cast<Block *>(malloc(sizeof(Block)));
   b_new->memStart = start;
-  b_new->memSize = 4096 * pageCount;
+  b_new->memSize = m_pageSize * pageCount;
   b_new->contigStart = c_new;
   b_new->next = nullptr;
 
   // Attach to the end of the linked-list
   Block *prevBlock = getEndOfBlocks();
   if (prevBlock == nullptr) {
-    blocks = b_new;
+    m_blocks = b_new;
   } else {
     prevBlock->next = b_new;
   }

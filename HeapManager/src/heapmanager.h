@@ -1,55 +1,47 @@
 #pragma once
 
 #include <cstddef>
-#include <sys/mman.h>
 #include <iostream>
-
-struct ContiguousRange
-{
-    void* start; // MUST BE PAGE-ALIGNED
-    std::size_t pages;
+#include <sys/mman.h>
+struct ContiguousRange {
+  void *start; // MUST BE PAGE-ALIGNED
+  std::size_t pages;
 };
 
-struct Block
-{
-    ContiguousRange* contigStart;
+struct Block {
+  ContiguousRange *contigStart;
 
-    void* memStart;
-    std::size_t memSize;
-    bool inuse;
+  void *memStart;
+  std::size_t memSize;
+  bool inuse;
 
-    Block* next;
+  Block *next;
 };
 
-class Heap
-{
+class Heap {
 public:
-    void* assignBlock(std::size_t);
-    void unassignBlock(void*);
-    static Heap& getHeap()
-    {
-        static Heap instance;
-        return instance;
-    }
+  void *assignBlock(std::size_t);
+  void unassignBlock(void *);
+  static Heap &getHeap() {
+    static Heap instance;
+    return instance;
+  }
 
-    Heap(const Heap&) = delete;
-    void operator=(const Heap&) = delete;
-    void print();
+  Heap(const Heap &) = delete;
+  void operator=(const Heap &) = delete;
+  void print();
 
 private:
-    Heap();
+  Heap();
 
-    Block* getLargeEnoughBlock(std::size_t size);
+  Block *getLargeEnoughBlock(std::size_t);
+  void coalesceHeap();
+  void coalesceBlocks(Block *, Block *);
+  bool areBlocksCoalesceAble(Block *, Block *);
+  void unmapEmptyPages();
+  Block *getEndOfBlocks();
+  void mapNPages(std::size_t);
 
-    void coalesceHeap();
-    void coalesceBlocks(Block* first, Block* second);
-    bool areBlocksCoalesceAble(Block* first, Block* second);
-
-    void unmapEmptyPages();
-
-    Block* getEndOfBlocks();
-
-    void mapNPages(std::size_t pageCount);
-
-    Block* blocks;
+  Block *m_blocks;
+  std::size_t m_pageSize;
 };
