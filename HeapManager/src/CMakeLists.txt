@@ -4,6 +4,8 @@ add_executable(${PROJECT_NAME}
     main.cpp
     heapallocator.cpp
     heapmanager.cpp
+    block.cpp
+    contiguousrange.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE .)

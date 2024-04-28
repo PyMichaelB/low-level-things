@@ -3,20 +3,9 @@
 #include <cstddef>
 #include <iostream>
 #include <sys/mman.h>
-struct ContiguousRange {
-  void *start; // MUST BE PAGE-ALIGNED
-  std::size_t pages;
-};
 
-struct Block {
-  ContiguousRange *contigStart;
-
-  void *memStart;
-  std::size_t memSize;
-  bool inuse;
-
-  Block *next;
-};
+#include <block.h>
+#include <contiguousrange.h>
 
 class Heap {
 public:

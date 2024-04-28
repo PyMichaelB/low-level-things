@@ -6,45 +6,48 @@
 
 Heap::Heap() : m_pageSize(getpagesize()) { mapNPages(1); }
 
-Heap::~Heap()
-{
+Heap::~Heap() {
   // Mark all blocks as not in use
   Block *b_p = m_blocks;
   while (b_p != nullptr) {
-    b_p->inuse = false;
-    b_p = b_p->next;
+    b_p->setInUse(false);
+    ;
+    b_p = b_p->getNextBlock();
   }
 
-  // Give allocated memory back to the OS - internal structures also cleaned up here
+  // Give allocated memory back to the OS - internal structures also cleaned up
+  // here
   coalesceHeap();
   unmapEmptyPages();
 }
 
 void Heap::coalesceBlocks(Block *first, Block *second) {
   // ADJUST SIZE
-  first->memSize += second->memSize;
-  first->next = second->next;
+  first->setMemorySize(first->getMemorySize() + second->getMemorySize());
+  first->setNextBlock(second->getNextBlock());
 
   // REMOVE SECOND BLOCK
-  free(second);
+  delete second;
 }
 
 bool Heap::areBlocksCoalesceAble(Block *first, Block *second) {
-  bool bothNotInUse = !first->inuse && !second->inuse;
+  bool bothNotInUse = !first->isInUse() && !second->isInUse();
   bool areAdjacentInMemory =
-      (first->memStart + first->memSize == second->memStart);
-  bool sameContiguousRegion = (first->contigStart == second->contigStart);
+      (first->getMemoryStart() + first->getMemorySize() ==
+       second->getMemoryStart());
+  bool sameContiguousRegion =
+      (first->getContiguousRange() == second->getContiguousRange());
 
   return bothNotInUse && areAdjacentInMemory && sameContiguousRegion;
 }
 
 void Heap::coalesceHeap() {
   Block *b_p = m_blocks;
-  while (b_p != nullptr && b_p->next != nullptr) {
-    if (areBlocksCoalesceAble(b_p, b_p->next)) {
-      coalesceBlocks(b_p, b_p->next);
+  while (b_p != nullptr && b_p->getNextBlock() != nullptr) {
+    if (areBlocksCoalesceAble(b_p, b_p->getNextBlock())) {
+      coalesceBlocks(b_p, b_p->getNextBlock());
     } else {
-      b_p = b_p->next;
+      b_p = b_p->getNextBlock();
     }
   }
 }
@@ -54,28 +57,31 @@ void Heap::unmapEmptyPages() {
   Block *b_p = m_blocks;
 
   while (b_p != nullptr) {
-    Block *b_next = b_p->next;
+    Block *b_next = b_p->getNextBlock();
 
-    if (!b_p->inuse && (b_p->memStart == b_p->contigStart->start) &&
-        b_p->memSize % m_pageSize == 0) {
+    if (!b_p->isInUse() &&
+        (b_p->getMemoryStart() == b_p->getContiguousRange()->getStart()) &&
+        b_p->getMemorySize() % m_pageSize == 0) {
       // b_p represents some number of pages worth of memory, is not in use,
       // and aligned with the start of a contiguous range of mapped memory
-      munmap(b_p->memStart, b_p->memSize);
+      munmap(b_p->getMemoryStart(), b_p->getMemorySize());
 
       if (b_prev != nullptr) {
-        b_prev->next = b_next;
+        b_prev->setNextBlock(b_next);
       } else {
         m_blocks = b_next;
       }
 
-      b_p->contigStart->pages -= b_p->memSize / m_pageSize;
-      b_p->contigStart->start = b_p->contigStart->start + b_p->memSize;
+      ContiguousRange *b_p_contig = b_p->getContiguousRange();
+      b_p_contig->setPages(b_p_contig->getPages() -
+                           b_p->getMemorySize() / m_pageSize);
+      b_p_contig->setStart(b_p_contig->getStart() + b_p->getMemorySize());
 
-      if (b_p->contigStart->pages == 0) {
-        free(b_p->contigStart);
+      if (b_p_contig->getPages() == 0) {
+        delete b_p_contig;
       }
 
-      free(b_p);
+      delete b_p;
     }
 
     b_p = b_next;
@@ -85,11 +91,11 @@ void Heap::unmapEmptyPages() {
 Block *Heap::getLargeEnoughBlock(std::size_t sizeRequired) {
   Block *b_p = m_blocks;
   while (b_p != nullptr) {
-    if (b_p->memSize >= sizeRequired && !b_p->inuse) {
+    if (b_p->getMemorySize() >= sizeRequired && !b_p->isInUse()) {
       break;
     }
 
-    b_p = b_p->next;
+    b_p = b_p->getNextBlock();
   }
 
   return b_p;
@@ -106,23 +112,21 @@ void *Heap::assignBlock(std::size_t size) {
   }
 
   // STEP 2: Allocate this block to size
-  if (suitableBlock->memSize != size) {
-    Block *splitOffBlock = static_cast<Block *>(malloc(sizeof(Block)));
-    splitOffBlock->inuse = false;
-    splitOffBlock->memStart = suitableBlock->memStart + size;
-    splitOffBlock->contigStart = suitableBlock->contigStart;
+  if (suitableBlock->getMemorySize() != size) {
+    Block *splitOffBlock = new Block(suitableBlock->getContiguousRange(),
+                                     suitableBlock->getMemoryStart() + size,
+                                     suitableBlock->getMemorySize() - size);
 
     // ADJUST SIZING
-    splitOffBlock->memSize = suitableBlock->memSize - size;
-    suitableBlock->memSize = size;
+    suitableBlock->setMemorySize(size);
 
     // SLOT INTO LINKED LIST
-    splitOffBlock->next = suitableBlock->next;
-    suitableBlock->next = splitOffBlock;
+    splitOffBlock->setNextBlock(suitableBlock->getNextBlock());
+    suitableBlock->setNextBlock(splitOffBlock);
   }
 
-  suitableBlock->inuse = true;
-  return suitableBlock->memStart;
+  suitableBlock->setInUse(true);
+  return suitableBlock->getMemoryStart();
 }
 
 void Heap::unassignBlock(void *p) {
@@ -130,16 +134,16 @@ void Heap::unassignBlock(void *p) {
   Block *b_p = m_blocks;
 
   while (b_p != nullptr) {
-    if (b_p->memStart == p) {
+    if (b_p->getMemoryStart() == p) {
       // FOUND BLOCK TO FREE
-      b_p->inuse = false;
+      b_p->setInUse(false);
       coalesceHeap();
       unmapEmptyPages();
       break;
     }
 
     b_prev = b_p;
-    b_p = b_p->next;
+    b_p = b_p->getNextBlock();
   }
 }
 
@@ -151,12 +155,12 @@ void Heap::print() {
 
   while (b_p != nullptr) {
     std::cout << "BLOCK " << blockCount << " :"
-              << " START @ " << b_p->memStart << " SIZE " << b_p->memSize
-              << " INUSE: " << b_p->inuse
-              << " CONTIGUOUS REGION START:" << b_p->contigStart->start
-              << std::endl;
+              << " START @ " << b_p->getMemoryStart() << " SIZE "
+              << b_p->getMemorySize() << " INUSE: " << b_p->isInUse()
+              << " CONTIGUOUS REGION START:"
+              << b_p->getContiguousRange()->getStart() << std::endl;
 
-    b_p = b_p->next;
+    b_p = b_p->getNextBlock();
     blockCount++;
   }
 
@@ -165,8 +169,8 @@ void Heap::print() {
 
 Block *Heap::getEndOfBlocks() {
   Block *b_p = m_blocks;
-  while (b_p != nullptr && b_p->next != nullptr) {
-    b_p = b_p->next;
+  while (b_p != nullptr && b_p->getNextBlock() != nullptr) {
+    b_p = b_p->getNextBlock();
   }
   return b_p;
 }
@@ -175,22 +179,14 @@ void Heap::mapNPages(std::size_t pageCount) {
   void *start = mmap(NULL, m_pageSize * pageCount, PROT_READ | PROT_WRITE,
                      MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
-  ContiguousRange *c_new =
-      static_cast<ContiguousRange *>(malloc(sizeof(ContiguousRange)));
-  c_new->pages = pageCount;
-  c_new->start = start;
-
-  Block *b_new = static_cast<Block *>(malloc(sizeof(Block)));
-  b_new->memStart = start;
-  b_new->memSize = m_pageSize * pageCount;
-  b_new->contigStart = c_new;
-  b_new->next = nullptr;
+  ContiguousRange *c_new = new ContiguousRange(pageCount, start);
+  Block *b_new = new Block(c_new, start, m_pageSize * pageCount);
 
   // Attach to the end of the linked-list
   Block *prevBlock = getEndOfBlocks();
   if (prevBlock == nullptr) {
     m_blocks = b_new;
   } else {
-    prevBlock->next = b_new;
+    prevBlock->setNextBlock(b_new);
   }
 }
