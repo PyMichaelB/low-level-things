@@ -24,12 +24,9 @@ template <class T> T *BasicAllocator<T>::allocate(std::size_t n) {
     return nullptr;
   }
 
-  T* newMem = static_cast<T *>(Heap::getHeap().assignBlock(n * sizeof(T)));
-  Heap::getHeap().print();
-  return newMem;
+  return static_cast<T *>(Heap::getHeap().assignBlock(n * sizeof(T)));
 }
 
 template <class T> void BasicAllocator<T>::deallocate(T *p, std::size_t n) {
   Heap::getHeap().unassignBlock(p);
-  Heap::getHeap().print();
 }

@@ -33,6 +33,7 @@ public:
 
 private:
   Heap();
+  ~Heap();
 
   Block *getLargeEnoughBlock(std::size_t);
   void coalesceHeap();

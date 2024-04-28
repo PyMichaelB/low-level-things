@@ -6,6 +6,20 @@
 
 Heap::Heap() : m_pageSize(getpagesize()) { mapNPages(1); }
 
+Heap::~Heap()
+{
+  // Mark all blocks as not in use
+  Block *b_p = m_blocks;
+  while (b_p != nullptr) {
+    b_p->inuse = false;
+    b_p = b_p->next;
+  }
+
+  // Give allocated memory back to the OS - internal structures also cleaned up here
+  coalesceHeap();
+  unmapEmptyPages();
+}
+
 void Heap::coalesceBlocks(Block *first, Block *second) {
   // ADJUST SIZE
   first->memSize += second->memSize;
@@ -81,10 +95,6 @@ Block *Heap::getLargeEnoughBlock(std::size_t sizeRequired) {
   return b_p;
 }
 void *Heap::assignBlock(std::size_t size) {
-  if (m_blocks == nullptr) {
-    return nullptr;
-  }
-
   // STEP 1: Find a block with enough space
   Block *suitableBlock = getLargeEnoughBlock(size);
 
